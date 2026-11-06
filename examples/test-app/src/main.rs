@@ -60,7 +60,7 @@ enum SampleMixedState {
 
 // WPP control GUIDs declaration
 wpp_control_guids!(
-    UserModeApp "34746ee9-2982-4967-aac1-fece7a3dfc3c" {
+    TestApp "34746ee9-2982-4967-aac1-fece7a3dfc3c" {
         GENERAL,
         LITERALS,
         VARIABLES,
@@ -76,7 +76,7 @@ wpp_control_guids!(
 
 fn main() {
     // SAFETY: `clean_up` is called before the program exits.
-    unsafe { UserModeApp::init(); SecondProvider::init(); };
+    unsafe { TestApp::init(); SecondProvider::init(); };
 
     trace!(
         INFO,
@@ -182,8 +182,7 @@ fn main() {
     // Trace statement without a keyword, using the default provider.
     trace!(INFO, "Default provider message without keyword");
     
-    SecondProvider::clean_up();
-    UserModeApp::clean_up();
+    SecondProvider::clean_up(); TestApp::clean_up();
 }
 
 fn trace_generic_values<T: wpp::IntoWppField, U: wpp::IntoWppField>(first: T, second: U) {
