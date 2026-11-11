@@ -25,13 +25,18 @@ mod device;
 #[driver_entry(trace_providers(DriverTracer))]
 fn driver_entry(driver_object: &mut DriverObject, registry_path: &UnicodeString) -> NtResult<()> {
     let config = DriverConfig::new(evt_device_add);
-    let _driver = Driver::create(driver_object, registry_path, config)?;
+    let _driver = match Driver::create(driver_object, registry_path, config) {
+        Ok(driver) => driver,
+        Err(status) => {
+            trace!(
+                INFO, GENERAL,
+                "Driver entry completed with status = {}",
+                status
+            );
 
-    trace!(
-        INFO, GENERAL,
-        "Driver entry completed with status = {}",
-        NtStatus::from(status_codes::STATUS_SUCCESS)
-    );
+            return Err(status)
+        },
+    };
 
     Ok(())
 }
