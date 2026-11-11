@@ -24,7 +24,7 @@ pub struct EVENT_DESCRIPTOR {
 /// ETW event data descriptor — points to one event field's data.
 #[repr(C)]
 pub struct EVENT_DATA_DESCRIPTOR {
-    pub Ptr: u64,
+    pub Ptr: usize,
     pub Size: u32,
     pub Reserved: u32,
 }

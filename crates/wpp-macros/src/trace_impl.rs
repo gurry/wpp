@@ -293,7 +293,7 @@ pub fn generate(input: TokenStream) -> Result<TokenStream> {
         .map(|b| {
             quote! {
                 ::wpp::etw::EVENT_DATA_DESCRIPTOR {
-                    Ptr: #b.as_ptr() as u64,
+                    Ptr: #b.as_ptr() as usize,
                     Size: #b.len() as u32,
                     Reserved: 0,
                 }
@@ -322,7 +322,7 @@ pub fn generate(input: TokenStream) -> Result<TokenStream> {
     // Leading decode-GUID descriptor (Type = EVENT_DATA_DESCRIPTOR_TYPE_RESERVED1).
     let decode_descriptor = quote! {
         ::wpp::etw::EVENT_DATA_DESCRIPTOR {
-            Ptr: &__WPP_DECODE_GUID as *const ::wpp::GUID as u64,
+            Ptr: &__WPP_DECODE_GUID as *const ::wpp::GUID as usize,
             Size: core::mem::size_of::<::wpp::GUID>() as u32,
             Reserved: ::wpp::etw::EVENT_DATA_DESCRIPTOR_TYPE_RESERVED1,
         }
