@@ -29,8 +29,8 @@ fn driver_entry(driver_object: &mut DriverObject, registry_path: &UnicodeString)
         Ok(driver) => driver,
         Err(status) => {
             trace!(
-                INFO, GENERAL,
-                "Driver entry completed with status = {}",
+                ERROR, GENERAL,
+                "Driver entry failed with status = {}",
                 status
             );
 
