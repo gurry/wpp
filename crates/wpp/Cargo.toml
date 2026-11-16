@@ -11,3 +11,4 @@ wpp-macros.workspace = true
 
 [features]
 kernel_mode = []
+user_mode = []

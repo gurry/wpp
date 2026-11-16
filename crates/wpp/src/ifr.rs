@@ -52,6 +52,7 @@ pub union WPP_PROJECT_CONTROL_BLOCK {
     ReserveSpace: [u8; mem::size_of::<WPP_TRACE_CONTROL_BLOCK>()],
 }
 
+#[cfg(feature = "kernel_mode")]
 #[repr(C)]
 pub struct WPP_TRACE_CONTROL_BLOCK {
     Callback: Option<
@@ -79,6 +80,7 @@ pub struct WPP_TRACE_CONTROL_BLOCK {
     pub AutoLogAttachToMiniDump: u16,
 }
 
+#[cfg(feature = "kernel_mode")]
 impl WPP_TRACE_CONTROL_BLOCK {
     #[doc(hidden)]
     pub const fn new(flags_len: u8) -> Self {
@@ -101,6 +103,23 @@ impl WPP_TRACE_CONTROL_BLOCK {
     }
 }
 
+#[cfg(not(feature = "kernel_mode"))]
+#[repr(C)]
+pub struct WPP_TRACE_CONTROL_BLOCK {
+    pub Next: *const WPP_TRACE_CONTROL_BLOCK,
+    UmRegistrationHandle: u64,
+    /// Union of `Logger` / `Win2kCb` / `Ptr` / `Cb` in the C definition.
+    pub Logger: u64,
+    pub FlagsLen: u8,
+    pub Level: u8,
+    Options: u16,
+    pub Flags: [u32; 1],
+    pub ControlGuid: *const crate::GUID,
+    pub AutoLogContext: *mut core::ffi::c_void,
+    pub AutoLogVerboseEnabled: u16,
+    pub AutoLogAttachToMiniDump: u16,
+}
+
 // -- IFR globals (expected by WinDbg / rcrdrkd) ------------------------------
 
 // NOTE: These are declared in the generated code in the sample driver
@@ -108,6 +127,7 @@ impl WPP_TRACE_CONTROL_BLOCK {
 // in the wpp library crate.
 
 /// Driver object pointer stored for cleanup.
+#[cfg(feature = "kernel_mode")]
 static mut WPP_DRIVER_OBJ: *mut core::ffi::c_void = ptr::null_mut();
 
 // -- FFI ---------------------------------------------------------------------
@@ -118,7 +138,13 @@ unsafe extern "C" {
         DrvObj: *mut core::ffi::c_void,
         RegPath: *const core::ffi::c_void,
     );
+
+    #[cfg(feature = "kernel_mode")]
     pub fn WppAutoLogStop(WppCb: *mut WPP_PROJECT_CONTROL_BLOCK, DrvObj: *mut core::ffi::c_void);
+
+    #[cfg(not(feature = "kernel_mode"))]
+    pub fn WppAutoLogStop(WppCb: *mut WPP_PROJECT_CONTROL_BLOCK);
+    
     #[doc(hidden)]
     pub fn WppAutoLogTrace(
         AutoLogContext: *mut core::ffi::c_void,
@@ -128,12 +154,16 @@ unsafe extern "C" {
         MessageNumber: u16,
         ...
     ) -> i32;
+
+    #[cfg(feature = "kernel_mode")]
     pub fn imp_WppRecorderReplay(
         WppCb: *mut core::ffi::c_void,
         WppTraceHandle: u64,
         EnableFlags: u32,
         EnableLevel: u8,
     );
+
+    #[cfg(feature = "kernel_mode")]
     pub fn MmGetSystemRoutineAddress(
         SystemRoutineName: *mut core::ffi::c_void,
     ) -> *mut core::ffi::c_void;
@@ -162,7 +192,10 @@ pub unsafe fn start_ifr(
     global_control: *mut *mut WPP_PROJECT_CONTROL_BLOCK
 ) {
     unsafe {
-        WPP_DRIVER_OBJ = driver_obj;
+        #[cfg(feature = "kernel_mode")] 
+        {
+            WPP_DRIVER_OBJ = driver_obj;
+        }
         *global_control = control_blocks;
         WppAutoLogStart(control_blocks, driver_obj, reg_path);
     }
@@ -182,15 +215,30 @@ pub unsafe fn stop_ifr(
     ifr_state: &IFRState,
     global_control: *mut *mut WPP_PROJECT_CONTROL_BLOCK,
 ) {
+    // TODO: Unsetting the auto_log_context doesn't necessarily mean the 
+    // ongoing operations are complete. It only means only new ops cannot be 
+    // started. Handle ongoing ops. Does WppAutoLogStop ensure ongoing 
+    // operations are completed?
     ifr_state
         .auto_log_context
         .store(ptr::null_mut(), Ordering::Release);
     unsafe {
         let cb = *global_control;
         if !cb.is_null() {
-            WppAutoLogStop(cb, WPP_DRIVER_OBJ);
+            #[cfg(feature = "kernel_mode")]
+            {
+                WppAutoLogStop(cb, WPP_DRIVER_OBJ);
+            }
+            #[cfg(not(feature = "kernel_mode"))]
+            {
+                WppAutoLogStop(cb);
+            }
             *global_control = ptr::null_mut();
-            WPP_DRIVER_OBJ = ptr::null_mut();
+
+            #[cfg(feature = "kernel_mode")]
+            {
+                WPP_DRIVER_OBJ = ptr::null_mut();
+            }
         }
     }
 }

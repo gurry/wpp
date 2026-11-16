@@ -661,10 +661,8 @@ fn generate_ifr_module(providers: &[ProviderDecl]) -> TokenStream {
         .collect();
 
     quote! {
-        ::wpp::__wpp_kernel_mode_only! {
         /// IFR (In-Flight Recorder) module — manages control blocks, IFR
-        /// lifecycle, and holds the shared `IFRState`. Only generated when
-        /// `wpp` is built with the `kernel_mode` feature.
+        /// lifecycle, and holds the shared `IFRState`.
         #[allow(non_snake_case)]
         pub mod __wpp_ifr {
             // IFR globals — must live in the consuming crate (not in wpp lib
@@ -803,7 +801,6 @@ fn generate_ifr_module(providers: &[ProviderDecl]) -> TokenStream {
                     );
                 }
             }
-        }
         }
     }
 }
