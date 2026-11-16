@@ -120,6 +120,26 @@ pub struct WPP_TRACE_CONTROL_BLOCK {
     pub AutoLogAttachToMiniDump: u16,
 }
 
+#[cfg(not(feature = "kernel_mode"))]
+impl WPP_TRACE_CONTROL_BLOCK {
+    #[doc(hidden)]
+    pub const fn new(flags_len: u8) -> Self {
+        Self {
+            Next: ptr::null(),
+            UmRegistrationHandle: 0,
+            Logger: 0,
+            FlagsLen: flags_len,
+            Level: 0,
+            Options: 0,
+            Flags: [0; 1],
+            ControlGuid: ptr::null(),
+            AutoLogContext: ptr::null_mut(),
+            AutoLogVerboseEnabled: 0,
+            AutoLogAttachToMiniDump: 0,
+        }
+    }
+}
+
 // -- IFR globals (expected by WinDbg / rcrdrkd) ------------------------------
 
 // NOTE: These are declared in the generated code in the sample driver
