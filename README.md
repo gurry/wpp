@@ -25,7 +25,7 @@ for example `MyProvider "84bdb2e9-829e-41b3-b891-02f454bc2bd7" { GENERAL }`.
 
 Each example is built separately from its own directory with `cargo +nightly build`.
 
-* [kmdf-driver](./examples/kmdf-driver): KMDF driver
-  tracing through ETW and IFR.
+* [kmdf-driver](./examples/kmdf-driver): KMDF driver tracing through ETW and IFR.
+* [umdf-driver](./examples/umdf-driver): UMDF driver tracing through ETW and IFR.
 * [test-app](./examples/test-app): Rust console application tracing
   through ETW.
