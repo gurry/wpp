@@ -24,7 +24,7 @@ test = false
 wdk-build = { git = "https://github.com/krishnakumar4a4/windows-drivers-rs", branch = "wdf-wpp-rust-native-frontend-impl-3", version = "0.4.0" }
 
 [dependencies]
-wdf = { git = "https://github.com/krishnakumar4a4/windows-drivers-rs", branch = "wdf-wpp-rust-native-frontend-impl-3", version = "0.3.0", features = ["kernel_mode"] }
+wdf = { git = "https://github.com/krishnakumar4a4/windows-drivers-rs", branch = "wdf-wpp-rust-native-frontend-impl-3", version = "0.3.0", features = ["kernel_mode", "ifr"] }
 wpp = { path = "../../crates/wpp", version = "0.1.0" }
 
 # `wdf` takes `wpp` from the wpp repository; use this repository's crates instead
