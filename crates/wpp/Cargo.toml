@@ -10,5 +10,7 @@ license.workspace = true
 wpp-macros.workspace = true
 
 [features]
+default = ["user_mode"]
 kernel_mode = []
 user_mode = []
+ifr = ["wpp-macros/ifr"]

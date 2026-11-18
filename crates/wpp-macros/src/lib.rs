@@ -13,6 +13,11 @@ use proc_macro::TokenStream;
 ///
 /// Must be invoked at the crate root. Generates a provider module and a
 /// `trace!` macro for emitting ETW events with compile-time PDB annotations.
+/// Also generates `wpp_init_tracing!()` for applications,
+/// `wpp_init_tracing!(driver_object, registry_path)` for drivers, and
+/// `wpp_cleanup!()`. Initialization requires an unsafe block. All declared
+/// providers are initialized in declaration order and cleaned up in reverse
+/// order, with IFR initialized first and cleaned up last when enabled.
 ///
 /// Each control GUID must be a string literal. Bare GUIDs are not accepted
 /// because Rust cannot tokenize some of them, such as `34746ee9-...`, where a

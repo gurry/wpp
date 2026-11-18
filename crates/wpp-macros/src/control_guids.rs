@@ -179,7 +179,10 @@ pub fn generate(input: TokenStream) -> Result<TokenStream> {
     output.extend(generate_wpp_flag_enum(&parsed.providers));
     output.extend(generate_unified_trace_macro(&parsed.providers));
     output.extend(generate_level_macro());
-    output.extend(generate_ifr_module(&parsed.providers));
+    output.extend(generate_lifecycle_macros(&parsed.providers));
+    if cfg!(feature = "ifr") {
+        output.extend(generate_ifr_module(&parsed.providers));
+    }
     Ok(output)
 }
 
@@ -259,7 +262,7 @@ fn generate_provider_module(p: &ProviderDecl, idx: usize) -> TokenStream {
             ///
             /// # Safety
             ///
-            /// In kernel mode, `__wpp_ifr::init()` must have been called
+            /// When the `ifr` feature is enabled, `__wpp_ifr::init()` must have been called
             /// before this so that IFR is ready.
             /// The caller must ensure `clean_up()` is called before the
             /// module containing this provider is unloaded.
@@ -590,6 +593,58 @@ fn generate_level_macro() -> TokenStream {
     }
 }
 
+fn generate_lifecycle_macros(providers: &[ProviderDecl]) -> TokenStream {
+    let dollar = proc_macro2::Punct::new('$', proc_macro2::Spacing::Alone);
+    let init_calls = providers.iter().map(|provider| {
+        let name = &provider.name;
+        quote! { #dollar crate::#name::init(); }
+    });
+    let cleanup_calls = providers.iter().rev().map(|provider| {
+        let name = &provider.name;
+        quote! { #dollar crate::#name::clean_up(); }
+    });
+    let (ifr_init, ifr_cleanup) = if cfg!(feature = "ifr") {
+        (
+            quote! {
+                #dollar crate::__wpp_ifr::init(__wpp_driver_obj, __wpp_reg_path);
+            },
+            quote! { #dollar crate::__wpp_ifr::cleanup(); },
+        )
+    } else {
+        (TokenStream::new(), TokenStream::new())
+    };
+
+    quote! {
+        /// Initializes all declared providers and, when enabled, IFR.
+        ///
+        /// # Safety
+        ///
+        /// Driver arguments must remain valid during initialization, and the
+        /// driver object must remain valid until cleanup.
+        /// Call `wpp_cleanup!()` before unloading the tracing code.
+        /// The zero-argument form is for user-mode applications only.
+        macro_rules! wpp_init_tracing {
+            () => {
+                wpp_init_tracing!(core::ptr::null_mut(), core::ptr::null())
+            };
+            (#dollar driver_obj:expr, #dollar reg_path:expr #dollar(,)?) => {{
+                let __wpp_driver_obj: *mut core::ffi::c_void = #dollar driver_obj;
+                let __wpp_reg_path: *const core::ffi::c_void = #dollar reg_path;
+                #ifr_init
+                #(#init_calls)*
+            }};
+        }
+
+        /// Cleans up all providers in reverse order, then IFR when enabled.
+        macro_rules! wpp_cleanup {
+            () => {{
+                #(#cleanup_calls)*
+                #ifr_cleanup
+            }};
+        }
+    }
+}
+
 /// Generates the `__wpp_ifr` module containing all IFR infrastructure:
 ///
 /// - `WPP_GLOBAL_Control` / `WPP_RECORDER_INITIALIZED` (`#[no_mangle]` statics)
@@ -767,6 +822,8 @@ fn generate_ifr_module(providers: &[ProviderDecl]) -> TokenStream {
                         .as_mut_ptr()
                         .cast::<::wpp::ifr::WPP_PROJECT_CONTROL_BLOCK>()
                 };
+
+                // TODO: Handle start error here
                 unsafe {
                     ::wpp::ifr::start_ifr(
                         cb_ptr,
@@ -808,6 +865,66 @@ fn generate_ifr_module(providers: &[ProviderDecl]) -> TokenStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lifecycle_macros_initialize_and_cleanup_in_order() {
+        let parsed: ControlGuidsInput = syn::parse2(quote! {
+            First "34746ee9-2982-4967-aac1-fece7a3dfc3c" { GENERAL }
+            Second "c5a04b92-0ed8-45ec-9732-aa27fdc95e45" { OTHER }
+        })
+        .unwrap();
+        let file: syn::File = syn::parse2(generate_lifecycle_macros(&parsed.providers)).unwrap();
+        let macros: Vec<_> = file
+            .items
+            .iter()
+            .map(|item| {
+                let syn::Item::Macro(item) = item else {
+                    panic!("expected a lifecycle macro");
+                };
+                (
+                    item.ident.as_ref().unwrap().to_string(),
+                    item.mac.tokens.to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(macros.len(), 2);
+        assert_eq!(macros[0].0, "wpp_init_tracing");
+        assert_eq!(macros[1].0, "wpp_cleanup");
+        let init = &macros[0].1;
+        let cleanup = &macros[1].1;
+        assert!(init.find("First :: init").unwrap() < init.find("Second :: init").unwrap());
+        assert!(
+            cleanup.find("Second :: clean_up").unwrap()
+                < cleanup.find("First :: clean_up").unwrap()
+        );
+        assert_eq!(init.contains("__wpp_ifr"), cfg!(feature = "ifr"));
+        assert_eq!(cleanup.contains("__wpp_ifr"), cfg!(feature = "ifr"));
+        if cfg!(feature = "ifr") {
+            assert!(
+                init.find("__wpp_ifr :: init").unwrap() < init.find("First :: init").unwrap()
+            );
+            assert!(
+                cleanup.find("First :: clean_up").unwrap()
+                    < cleanup.find("__wpp_ifr :: cleanup").unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn ifr_module_requires_ifr_feature() {
+        let output = generate(quote! {
+            App "34746ee9-2982-4967-aac1-fece7a3dfc3c" { GENERAL }
+        })
+        .unwrap();
+        let file: syn::File = syn::parse2(output).unwrap();
+        let has_ifr_module = file.items.iter().any(|item| {
+            matches!(item, syn::Item::Mod(module) if module.ident == "__wpp_ifr")
+        });
+        assert_eq!(has_ifr_module, cfg!(feature = "ifr"));
+        assert!(file.items.iter().any(|item| {
+            matches!(item, syn::Item::Mod(module) if module.ident == "App")
+        }));
+    }
 
     #[test]
     fn guid_parsing() {

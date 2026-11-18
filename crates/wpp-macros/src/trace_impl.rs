@@ -121,7 +121,11 @@ fn parse_path_tokens(input: ParseStream) -> Result<TokenStream> {
 
 pub fn generate(input: TokenStream) -> Result<TokenStream> {
     let parsed: TraceImplInput = syn::parse2(input)?;
+    let module_key = module_key_from_span(parsed.format_span);
+    generate_for_module(parsed, &module_key)
+}
 
+fn generate_for_module(parsed: TraceImplInput, module_key: &str) -> Result<TokenStream> {
     let provider_mod = &parsed.provider_mod;
     let ifr_state = &parsed.ifr_state;
     let provider_name = &parsed.provider_name;
@@ -140,8 +144,7 @@ pub fn generate(input: TokenStream) -> Result<TokenStream> {
     // This avoids the Option A collision where the control GUID doubled as the
     // trace/decode GUID and interleaved with TMC records. `guid` (the control
     // GUID) is retained only for enablement/registration, not for decoding.
-    let module_guid =
-        compute_module_decode_guid(&module_key_from_span(parsed.format_span), guid);
+    let module_guid = compute_module_decode_guid(module_key, guid);
     let decode_guid_str = &module_guid.guid_str;
     let (dg1, dg2, dg3) = (module_guid.d1, module_guid.d2, module_guid.d3);
     let dg4_tokens: Vec<TokenStream> = module_guid
@@ -330,6 +333,39 @@ pub fn generate(input: TokenStream) -> Result<TokenStream> {
     // Total descriptors written = decode-GUID descriptor + one per field.
     let total_desc_count = (field_count + 1) as u32;
 
+    let ifr_event_id = if field_count > 0 {
+        quote!(__wpp_event_id)
+    } else {
+        quote!(#event_id_lit)
+    };
+    let ifr_trace = if cfg!(feature = "ifr") {
+        quote! {
+            // IFR: gated by IFR state auto_log_context (always records when IFR is initialized)
+            {
+                let __wpp_auto_ctx = #ifr_state.auto_log_context();
+                if !__wpp_auto_ctx.is_null() {
+                    // TODO: I think there should be a runtime trace level check for IFR as well.
+                    // Double check TMH implementation
+                    let mut __wpp_ifr_guid = __WPP_DECODE_GUID;
+                    unsafe {
+                        ::wpp::ifr::WppAutoLogTrace(
+                            __wpp_auto_ctx,
+                            #level_expr,
+                            (#provider_mod::#keyword_ident & 0xFFFF_FFFF) as u32,
+                            &mut __wpp_ifr_guid as *mut ::wpp::GUID
+                                as *mut core::ffi::c_void,
+                            #ifr_event_id,
+                            #(#ifr_arg_pairs)*
+                            core::ptr::null::<core::ffi::c_void>(),
+                        )
+                    };
+                }
+            }
+        }
+    } else {
+        TokenStream::new()
+    };
+
     let output = if field_count > 0 {
         quote! {{
             #decode_guid_const
@@ -364,25 +400,7 @@ pub fn generate(input: TokenStream) -> Result<TokenStream> {
                 }
             }
 
-            // IFR: gated by IFR state auto_log_context (always records when IFR is initialized)
-            {
-                let __wpp_auto_ctx = #ifr_state.auto_log_context();
-                if !__wpp_auto_ctx.is_null() {
-                    let mut __wpp_ifr_guid = __WPP_DECODE_GUID;
-                    unsafe {
-                        ::wpp::ifr::WppAutoLogTrace(
-                            __wpp_auto_ctx,
-                            #level_expr,
-                            (#provider_mod::#keyword_ident & 0xFFFF_FFFF) as u32,
-                            &mut __wpp_ifr_guid as *mut ::wpp::GUID
-                                as *mut core::ffi::c_void,
-                            __wpp_event_id,
-                            #(#ifr_arg_pairs)*
-                            core::ptr::null::<core::ffi::c_void>(),
-                        )
-                    };
-                }
-            }
+            #ifr_trace
         }}
     } else {
         quote! {{
@@ -414,24 +432,7 @@ pub fn generate(input: TokenStream) -> Result<TokenStream> {
                 }
             }
 
-            // IFR: gated by IFR state auto_log_context (always records when IFR is initialized)
-            {
-                let __wpp_auto_ctx = #ifr_state.auto_log_context();
-                if !__wpp_auto_ctx.is_null() {
-                    let mut __wpp_ifr_guid = __WPP_DECODE_GUID;
-                    unsafe {
-                        ::wpp::ifr::WppAutoLogTrace(
-                            __wpp_auto_ctx,
-                            #level_expr,
-                            (#provider_mod::#keyword_ident & 0xFFFF_FFFF) as u32,
-                            &mut __wpp_ifr_guid as *mut ::wpp::GUID
-                                as *mut core::ffi::c_void,
-                            #event_id_lit,
-                            core::ptr::null::<core::ffi::c_void>(),
-                        )
-                    };
-                }
-            }
+            #ifr_trace
         }}
     };
 
@@ -597,6 +598,8 @@ fn module_key_from_span(span: proc_macro2::Span) -> String {
 /// module share one decode identity. The 128 bits are filled from two FNV-1a
 /// passes; the version (4) and variant (RFC 4122) nibbles are then fixed so the
 /// value is a well-formed UUID that the trace decoder accepts.
+/// TODO: Accept relative path to module root instead of full file path to ensure 
+/// reproducible module keys even when the project moved to a different parent path.
 fn compute_module_decode_guid(module_key: &str, provider_guid: &GuidParts) -> ModuleGuid {
     // Extend the module-only scheme above with the provider control GUID:
     // TracePDB groups TMF records by decode GUID and retains one provider label,
@@ -640,6 +643,29 @@ mod tests {
 
     const SAMPLE_PROVIDER_GUID: &str = "cb94defb-592a-4509-8f2e-54f204929669";
     const PNP_PROVIDER_GUID: &str = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+
+    #[test]
+    fn ifr_trace_requires_ifr_feature() {
+        for message in [quote! { "no fields" }, quote! { "value {}", 42u32 }] {
+            let parsed = syn::parse2(quote! {
+                @provider_mod crate::App,
+                @ifr_state crate::__wpp_ifr::STATE,
+                @provider_name "App",
+                @guid "cb94defb-592a-4509-8f2e-54f204929669",
+                @level 4,
+                @level_name INFO,
+                @keyword GENERAL,
+                @fmt #message
+            })
+            .unwrap();
+            let output = generate_for_module(parsed, "src/lib.rs").unwrap();
+            let _: syn::Expr = syn::parse2(output.clone()).unwrap();
+            let output = output.to_string();
+            assert_eq!(output.contains("__wpp_ifr"), cfg!(feature = "ifr"));
+            assert_eq!(output.contains("WppAutoLogTrace"), cfg!(feature = "ifr"));
+            assert!(output.contains(":: wpp :: etw :: write"));
+        }
+    }
 
     #[test]
     fn parse_simple_placeholders() {
