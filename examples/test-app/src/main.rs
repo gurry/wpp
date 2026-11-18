@@ -1,4 +1,4 @@
-//! A simple user-mode application that emits WPP trace messages over ETW.
+//! A simple user-mode application that emits WPP trace messages over ETW and IFR.
 
 #![feature(codeview_annotation)]
 #![feature(core_os)]
@@ -74,9 +74,9 @@ wpp_control_guids!(
     }
 );
 
-fn main() {
-    // SAFETY: `clean_up` is called before the program exits.
-    unsafe { TestApp::init(); SecondProvider::init(); };
+fn main() -> Result<(), &'static str> {
+    // SAFETY: Tracing is cleaned up before the application exits.
+    unsafe { wpp_init_tracing!() };
 
     trace!(
         INFO,
@@ -182,7 +182,8 @@ fn main() {
     // Trace statement without a keyword, using the default provider.
     trace!(INFO, "Default provider message without keyword");
     
-    SecondProvider::clean_up(); TestApp::clean_up();
+    wpp_cleanup!();
+    Ok(())
 }
 
 fn trace_generic_values<T: wpp::IntoWppField, U: wpp::IntoWppField>(first: T, second: U) {
