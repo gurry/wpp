@@ -76,7 +76,7 @@ wpp_control_guids!(
 
 fn main() -> Result<(), &'static str> {
     // SAFETY: Tracing is cleaned up before the application exits.
-    unsafe { wpp_init_tracing!() };
+    unsafe { wpp_tracing::init() };
 
     trace!(
         INFO,
@@ -182,7 +182,8 @@ fn main() -> Result<(), &'static str> {
     // Trace statement without a keyword, using the default provider.
     trace!(INFO, "Default provider message without keyword");
     
-    wpp_cleanup!();
+    // SAFETY: All tracing above is synchronous and has completed.
+    unsafe { wpp_tracing::cleanup() };
     Ok(())
 }
 

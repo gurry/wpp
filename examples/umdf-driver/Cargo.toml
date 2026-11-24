@@ -21,11 +21,11 @@ crate-type = ["cdylib"]
 test = false
 
 [build-dependencies]
-wdk-build = { git = "https://github.com/krishnakumar4a4/windows-drivers-rs", branch = "wdf-wpp-rust-native-frontend-impl-3", version = "0.4.0" }
+wdk-build = { path = "../../../wdr-3/crates/wdk-build", version = "0.4.0" }
 
 [dependencies]
-wdf = { git = "https://github.com/krishnakumar4a4/windows-drivers-rs", branch = "wdf-wpp-rust-native-frontend-impl-3", version = "0.3.0", features = ["user_mode", "ifr"] }
-wpp = { path = "../../crates/wpp", version = "0.1.0" }
+wdf = { git = "https://github.com/krishnakumar4a4/windows-drivers-rs", branch = "wdf-wpp-rust-native-frontend-impl-3", version = "0.3.0", features = ["user_mode"] }
+wpp = { path = "../../crates/wpp", version = "0.1.0", default-features = false }
 
 # `wdf` takes `wpp` from the wpp repository; use this repository's crates instead
 # so the driver and `wdf` share a single `wpp`.

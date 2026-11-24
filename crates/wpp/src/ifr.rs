@@ -152,6 +152,10 @@ static mut WPP_DRIVER_OBJ: *mut core::ffi::c_void = ptr::null_mut();
 
 // -- FFI ---------------------------------------------------------------------
 
+#[cfg_attr(
+    all(feature = "ifr", feature = "user_mode"),
+    link(name = "WppRecorderUM", kind = "dylib")
+)]
 unsafe extern "C" {
     pub fn WppAutoLogStart(
         WppCb: *mut WPP_PROJECT_CONTROL_BLOCK,

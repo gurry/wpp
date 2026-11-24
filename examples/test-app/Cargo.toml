@@ -7,8 +7,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-# `kernel_mode` is intentionally not enabled: this app uses user-mode ETW and IFR APIs.
-wpp = { path = "../../crates/wpp", version = "0.1.0", features = ["ifr"] }
+wpp = { path = "../../crates/wpp", version = "0.1.0" }
 
 [profile.release]
 debug = 2

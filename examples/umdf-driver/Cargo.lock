@@ -641,7 +641,7 @@ name = "umdf-driver"
 version = "0.1.0"
 dependencies = [
  "wdf",
- "wdk-build",
+ "wdk-build 0.4.0",
  "wpp",
 ]
 
@@ -666,14 +666,14 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 [[package]]
 name = "wdf"
 version = "0.3.0"
-source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#01cc8646766da5f5742d1b93507216d8a15e0bed"
+source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#e069a702c6da578499b73a30907352f78a443e20"
 dependencies = [
  "bitflags",
  "paste",
  "wdf-macros",
  "wdk",
  "wdk-alloc",
- "wdk-build",
+ "wdk-build 0.4.0 (git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3)",
  "wdk-panic",
  "wdk-sys",
  "wpp",
@@ -682,7 +682,7 @@ dependencies = [
 [[package]]
 name = "wdf-macros"
 version = "0.3.0"
-source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#01cc8646766da5f5742d1b93507216d8a15e0bed"
+source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#e069a702c6da578499b73a30907352f78a443e20"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -692,30 +692,52 @@ dependencies = [
 [[package]]
 name = "wdk"
 version = "0.3.1"
-source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#01cc8646766da5f5742d1b93507216d8a15e0bed"
+source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#e069a702c6da578499b73a30907352f78a443e20"
 dependencies = [
  "cfg-if",
  "tracing",
  "tracing-subscriber",
- "wdk-build",
+ "wdk-build 0.4.0 (git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3)",
  "wdk-sys",
 ]
 
 [[package]]
 name = "wdk-alloc"
 version = "0.3.1"
-source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#01cc8646766da5f5742d1b93507216d8a15e0bed"
+source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#e069a702c6da578499b73a30907352f78a443e20"
 dependencies = [
  "tracing",
  "tracing-subscriber",
- "wdk-build",
+ "wdk-build 0.4.0 (git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3)",
  "wdk-sys",
 ]
 
 [[package]]
 name = "wdk-build"
 version = "0.4.0"
-source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#01cc8646766da5f5742d1b93507216d8a15e0bed"
+dependencies = [
+ "anyhow",
+ "bindgen",
+ "camino",
+ "cargo_metadata",
+ "cfg-if",
+ "clap",
+ "clap-cargo",
+ "paste",
+ "regex",
+ "rustversion",
+ "semver",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+ "windows",
+]
+
+[[package]]
+name = "wdk-build"
+version = "0.4.0"
+source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#e069a702c6da578499b73a30907352f78a443e20"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -738,7 +760,7 @@ dependencies = [
 [[package]]
 name = "wdk-macros"
 version = "0.4.0"
-source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#01cc8646766da5f5742d1b93507216d8a15e0bed"
+source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#e069a702c6da578499b73a30907352f78a443e20"
 dependencies = [
  "cfg-if",
  "fs4",
@@ -754,12 +776,12 @@ dependencies = [
 [[package]]
 name = "wdk-panic"
 version = "0.3.1"
-source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#01cc8646766da5f5742d1b93507216d8a15e0bed"
+source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#e069a702c6da578499b73a30907352f78a443e20"
 
 [[package]]
 name = "wdk-sys"
 version = "0.4.0"
-source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#01cc8646766da5f5742d1b93507216d8a15e0bed"
+source = "git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3#e069a702c6da578499b73a30907352f78a443e20"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -771,7 +793,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
- "wdk-build",
+ "wdk-build 0.4.0 (git+https://github.com/krishnakumar4a4/windows-drivers-rs?branch=wdf-wpp-rust-native-frontend-impl-3)",
  "wdk-macros",
 ]
 
