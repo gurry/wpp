@@ -8,6 +8,12 @@
 
 #![no_std]
 
+#[cfg(all(feature = "kernel_mode", feature = "user_mode"))]
+compile_error!("wpp: `kernel_mode` and `user_mode` are mutually exclusive");
+
+#[cfg(not(any(feature = "kernel_mode", feature = "user_mode")))]
+compile_error!("wpp: enable exactly one of `kernel_mode` or `user_mode`");
+
 extern crate alloc;
 
 pub mod etw;

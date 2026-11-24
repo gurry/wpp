@@ -103,7 +103,7 @@ impl WPP_TRACE_CONTROL_BLOCK {
     }
 }
 
-#[cfg(not(feature = "kernel_mode"))]
+#[cfg(feature = "user_mode")]
 #[repr(C)]
 pub struct WPP_TRACE_CONTROL_BLOCK {
     pub Next: *const WPP_TRACE_CONTROL_BLOCK,
@@ -120,7 +120,7 @@ pub struct WPP_TRACE_CONTROL_BLOCK {
     pub AutoLogAttachToMiniDump: u16,
 }
 
-#[cfg(not(feature = "kernel_mode"))]
+#[cfg(feature = "user_mode")]
 impl WPP_TRACE_CONTROL_BLOCK {
     #[doc(hidden)]
     pub const fn new(flags_len: u8) -> Self {
@@ -162,7 +162,7 @@ unsafe extern "C" {
     #[cfg(feature = "kernel_mode")]
     pub fn WppAutoLogStop(WppCb: *mut WPP_PROJECT_CONTROL_BLOCK, DrvObj: *mut core::ffi::c_void);
 
-    #[cfg(not(feature = "kernel_mode"))]
+    #[cfg(feature = "user_mode")]
     pub fn WppAutoLogStop(WppCb: *mut WPP_PROJECT_CONTROL_BLOCK);
     
     #[doc(hidden)]
@@ -200,7 +200,12 @@ unsafe extern "C" {
 ///
 /// * `control_blocks` must point to a valid linked list of
 ///   `WPP_PROJECT_CONTROL_BLOCK` with `ControlGuid` set on each block.
-/// * `driver_obj` and `reg_path` must be valid pointers from DriverEntry.
+/// * For drivers, `driver_obj` must identify the native driver object and
+///   remain valid through [`stop_ifr`]. `reg_path` must identify the native
+///   registry-path descriptor, with its buffer valid during initialization.
+/// * User-mode applications may pass null for both context pointers.
+///   Kernel-mode initialization requires a driver context.
+/// * Initialization and cleanup must be externally serialized.
 /// * `ifr_state` must point to the IFR module's static `IFRState`.
 /// * `global_control` must point to the `#[no_mangle]` static `WPP_GLOBAL_Control`.
 #[doc(hidden)]
@@ -229,7 +234,10 @@ pub unsafe fn start_ifr(
 ///
 /// # Safety
 ///
-/// `global_control` must point to the same `#[no_mangle]` static passed to [`start_ifr`].
+/// All tracing callers must have stopped, and no initialization or cleanup may
+/// run concurrently. Any driver object supplied at initialization must remain
+/// valid. `global_control` must point to the same `#[no_mangle]` static passed to
+/// [`start_ifr`].
 #[doc(hidden)]
 pub unsafe fn stop_ifr(
     ifr_state: &IFRState,
@@ -249,7 +257,7 @@ pub unsafe fn stop_ifr(
             {
                 WppAutoLogStop(cb, WPP_DRIVER_OBJ);
             }
-            #[cfg(not(feature = "kernel_mode"))]
+            #[cfg(feature = "user_mode")]
             {
                 WppAutoLogStop(cb);
             }

@@ -4,8 +4,8 @@
 //! Thin wrappers around ETW APIs.
 //!
 //! When the `kernel_mode` feature is enabled, binds to the kernel-mode
-//! `Etw*` functions. Otherwise, binds to the user-mode `Event*` functions
-//! from `onecore_apiset`.
+//! `Etw*` functions. The `user_mode` feature selects the user-mode `Event*`
+//! functions from `onecore_apiset`. Exactly one mode must be enabled.
 
 use crate::GUID;
 
@@ -83,7 +83,7 @@ unsafe extern "system" {
     ) -> u32;
 }
 
-#[cfg(not(feature = "kernel_mode"))]
+#[cfg(feature = "user_mode")]
 #[link(name = "onecore_apiset")]
 unsafe extern "system" {
     fn EventRegister(
@@ -121,7 +121,7 @@ use self::{
     EtwUnregister as event_unregister,
     EtwWriteTransfer as event_write,
 };
-#[cfg(not(feature = "kernel_mode"))]
+#[cfg(feature = "user_mode")]
 use self::{
     EventRegister as event_register,
     EventSetInformation as event_set_information,

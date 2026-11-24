@@ -59,6 +59,12 @@ impl Parse for ControlGuidsInput {
 impl Parse for ProviderDecl {
     fn parse(input: ParseStream) -> Result<Self> {
         let name: Ident = input.parse()?;
+        if name == "wpp_tracing" || name == "__wpp_ifr" {
+            return Err(syn::Error::new(
+                name.span(),
+                "provider name is reserved for WPP lifecycle support",
+            ));
+        }
         let guid_str = parse_guid(input)?;
         let guid_parts =
             parse_guid_parts(&guid_str).map_err(|e| input.error(format!("invalid GUID: {}", e)))?;
@@ -179,7 +185,7 @@ pub fn generate(input: TokenStream) -> Result<TokenStream> {
     output.extend(generate_wpp_flag_enum(&parsed.providers));
     output.extend(generate_unified_trace_macro(&parsed.providers));
     output.extend(generate_level_macro());
-    output.extend(generate_lifecycle_macros(&parsed.providers));
+    output.extend(generate_lifecycle_module(&parsed.providers));
     if cfg!(feature = "ifr") {
         output.extend(generate_ifr_module(&parsed.providers));
     }
@@ -262,8 +268,8 @@ fn generate_provider_module(p: &ProviderDecl, idx: usize) -> TokenStream {
             ///
             /// # Safety
             ///
-            /// When the `ifr` feature is enabled, `__wpp_ifr::init()` must have been called
-            /// before this so that IFR is ready.
+            /// When the `ifr` feature is enabled, IFR must already have been
+            /// initialized through the generated `wpp_tracing` module.
             /// The caller must ensure `clean_up()` is called before the
             /// module containing this provider is unloaded.
             pub unsafe fn init() {
@@ -593,54 +599,92 @@ fn generate_level_macro() -> TokenStream {
     }
 }
 
-fn generate_lifecycle_macros(providers: &[ProviderDecl]) -> TokenStream {
-    let dollar = proc_macro2::Punct::new('$', proc_macro2::Spacing::Alone);
+fn generate_lifecycle_module(providers: &[ProviderDecl]) -> TokenStream {
     let init_calls = providers.iter().map(|provider| {
         let name = &provider.name;
-        quote! { #dollar crate::#name::init(); }
+        quote! { unsafe { super::#name::init(); } }
     });
     let cleanup_calls = providers.iter().rev().map(|provider| {
         let name = &provider.name;
-        quote! { #dollar crate::#name::clean_up(); }
+        quote! { super::#name::clean_up(); }
     });
-    let (ifr_init, ifr_cleanup) = if cfg!(feature = "ifr") {
+    let (ifr_init_driver, ifr_init_app, ifr_cleanup) = if cfg!(feature = "ifr") {
         (
             quote! {
-                #dollar crate::__wpp_ifr::init(__wpp_driver_obj, __wpp_reg_path);
+                unsafe { super::__wpp_ifr::init_driver(driver_object, registry_path); }
             },
-            quote! { #dollar crate::__wpp_ifr::cleanup(); },
+            quote! {
+                unsafe { super::__wpp_ifr::init(); }
+            },
+            quote! {
+                unsafe { super::__wpp_ifr::cleanup(); }
+            },
         )
     } else {
-        (TokenStream::new(), TokenStream::new())
+        (
+            quote! { let _ = (driver_object, registry_path); },
+            TokenStream::new(),
+            TokenStream::new(),
+        )
+    };
+    let app_init = if cfg!(feature = "user_mode") {
+        quote! {
+            /// Initializes application tracing and, when enabled, IFR.
+            ///
+            /// # Safety
+            ///
+            /// Initialization and cleanup must be externally serialized.
+            /// Do not mix application and driver initialization in one active
+            /// lifecycle. Call `cleanup` before unloading the tracing code.
+            pub unsafe fn init() {
+                #ifr_init_app
+                unsafe { init_providers(); }
+            }
+        }
+    } else {
+        TokenStream::new()
     };
 
     quote! {
-        /// Initializes all declared providers and, when enabled, IFR.
-        ///
-        /// # Safety
-        ///
-        /// Driver arguments must remain valid during initialization, and the
-        /// driver object must remain valid until cleanup.
-        /// Call `wpp_cleanup!()` before unloading the tracing code.
-        /// The zero-argument form is for user-mode applications only.
-        macro_rules! wpp_init_tracing {
-            () => {
-                wpp_init_tracing!(core::ptr::null_mut(), core::ptr::null())
-            };
-            (#dollar driver_obj:expr, #dollar reg_path:expr #dollar(,)?) => {{
-                let __wpp_driver_obj: *mut core::ffi::c_void = #dollar driver_obj;
-                let __wpp_reg_path: *const core::ffi::c_void = #dollar reg_path;
-                #ifr_init
-                #(#init_calls)*
-            }};
-        }
+        /// Lifecycle operations for all providers declared by `wpp_control_guids!`.
+        pub mod wpp_tracing {
+            /// Initializes driver tracing and, when enabled, IFR.
+            ///
+            /// # Safety
+            ///
+            /// `driver_object` must be a non-null, valid native driver-object
+            /// pointer for the selected mode and remain valid until cleanup.
+            /// `registry_path` must be a non-null pointer to a valid native
+            /// `UNICODE_STRING` descriptor, with its buffer valid throughout
+            /// initialization. Pass native pointers, not framework wrapper
+            /// addresses. Initialization and cleanup must be externally
+            /// serialized; do not change context during an active lifecycle.
+            /// Call `cleanup` before unloading the tracing code.
+            pub unsafe fn init_driver(
+                driver_object: *mut core::ffi::c_void,
+                registry_path: *const core::ffi::c_void,
+            ) {
+                #ifr_init_driver
+                unsafe { init_providers(); }
+            }
 
-        /// Cleans up all providers in reverse order, then IFR when enabled.
-        macro_rules! wpp_cleanup {
-            () => {{
+            #app_init
+
+            unsafe fn init_providers() {
+                #(#init_calls)*
+            }
+
+            /// Cleans up all providers in reverse order, then IFR when enabled.
+            ///
+            /// # Safety
+            ///
+            /// All tracing callers must have stopped, and no initialization or
+            /// other cleanup may run concurrently. The driver object supplied
+            /// at initialization must still be valid.
+            pub unsafe fn cleanup() {
                 #(#cleanup_calls)*
                 #ifr_cleanup
-            }};
+            }
         }
     }
 }
@@ -650,10 +694,26 @@ fn generate_lifecycle_macros(providers: &[ProviderDecl]) -> TokenStream {
 /// - `WPP_GLOBAL_Control` / `WPP_RECORDER_INITIALIZED` (`#[no_mangle]` statics)
 /// - Control block array and helper types
 /// - `STATE: IFRState` — holds auto-log context for trace calls
-/// - `init(driver_obj, reg_path)` — creates CBs, links them, sets control GUIDs
-///   from the global array, and starts IFR auto-log recording
+/// - `init_driver(driver_object, registry_path)` — starts driver IFR
+/// - `init()` — starts application IFR in user mode
 /// - `cleanup()` — stops IFR tracing
 fn generate_ifr_module(providers: &[ProviderDecl]) -> TokenStream {
+    let app_init = if cfg!(feature = "user_mode") {
+        quote! {
+            /// Initializes application IFR without a driver context.
+            ///
+            /// # Safety
+            ///
+            /// Initialization and cleanup must be externally serialized.
+            /// Do not change context during an active tracing lifecycle.
+            #[doc(hidden)]
+            pub unsafe fn init() {
+                unsafe { init_raw(core::ptr::null_mut(), core::ptr::null()); }
+            }
+        }
+    } else {
+        TokenStream::new()
+    };
     let num_controls = providers.len();
     let num_controls_lit = proc_macro2::Literal::usize_unsuffixed(num_controls);
 
@@ -782,16 +842,29 @@ fn generate_ifr_module(providers: &[ProviderDecl]) -> TokenStream {
                 }
             }
 
-            /// Initializes IFR: creates control blocks, links them, sets
-            /// control GUIDs from the global array, and starts IFR auto-log
-            /// recording. Stores the auto-log context in `STATE`.
+            /// Initializes driver IFR using native context pointers.
             ///
             /// # Safety
             ///
-            /// * `driver_obj` and `reg_path` must be valid pointers from
-            ///   DriverEntry.
+            /// `driver_object` must be a non-null, valid native driver-object
+            /// pointer for the selected mode and remain valid through cleanup.
+            /// `registry_path` must be a non-null pointer to a valid native
+            /// `UNICODE_STRING` descriptor, with its buffer valid throughout
+            /// initialization. Pass native pointers, not framework wrapper
+            /// addresses.
+            /// Initialization and cleanup must be externally serialized.
+            /// Do not change context during an active tracing lifecycle.
             #[doc(hidden)]
-            pub unsafe fn init(
+            pub unsafe fn init_driver(
+                driver_object: *mut core::ffi::c_void,
+                registry_path: *const core::ffi::c_void,
+            ) {
+                unsafe { init_raw(driver_object, registry_path); }
+            }
+
+            #app_init
+
+            unsafe fn init_raw(
                 driver_obj: *mut core::ffi::c_void,
                 reg_path: *const core::ffi::c_void,
             ) {
@@ -841,8 +914,14 @@ fn generate_ifr_module(providers: &[ProviderDecl]) -> TokenStream {
             }
 
             /// Stops IFR tracing and clears the auto-log context.
+            ///
+            /// # Safety
+            ///
+            /// All tracing callers must have stopped. Initialization and
+            /// cleanup must be externally serialized, and the driver object
+            /// supplied at initialization must still be valid.
             #[doc(hidden)]
-            pub fn cleanup() {
+            pub unsafe fn cleanup() {
                 if STATE.init_state.compare_exchange(
                     ::wpp::ifr::INITIALIZED,
                     ::wpp::ifr::UNINITIALIZED,
@@ -867,46 +946,75 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lifecycle_macros_initialize_and_cleanup_in_order() {
+    fn lifecycle_module_initializes_and_cleans_up_in_order() {
         let parsed: ControlGuidsInput = syn::parse2(quote! {
             First "34746ee9-2982-4967-aac1-fece7a3dfc3c" { GENERAL }
             Second "c5a04b92-0ed8-45ec-9732-aa27fdc95e45" { OTHER }
         })
         .unwrap();
-        let file: syn::File = syn::parse2(generate_lifecycle_macros(&parsed.providers)).unwrap();
-        let macros: Vec<_> = file
-            .items
-            .iter()
+        let module: syn::ItemMod =
+            syn::parse2(generate_lifecycle_module(&parsed.providers)).unwrap();
+        assert_eq!(module.ident, "wpp_tracing");
+        let functions: Vec<_> = module
+            .content
+            .unwrap()
+            .1
+            .into_iter()
             .map(|item| {
-                let syn::Item::Macro(item) = item else {
-                    panic!("expected a lifecycle macro");
+                let syn::Item::Fn(function) = item else {
+                    panic!("expected a lifecycle function");
                 };
-                (
-                    item.ident.as_ref().unwrap().to_string(),
-                    item.mac.tokens.to_string(),
-                )
+                function
             })
             .collect();
-        assert_eq!(macros.len(), 2);
-        assert_eq!(macros[0].0, "wpp_init_tracing");
-        assert_eq!(macros[1].0, "wpp_cleanup");
-        let init = &macros[0].1;
-        let cleanup = &macros[1].1;
-        assert!(init.find("First :: init").unwrap() < init.find("Second :: init").unwrap());
+        let find = |name: &str| functions.iter().find(|f| f.sig.ident == name).unwrap();
+        let driver_init = find("init_driver");
+        assert!(driver_init.sig.unsafety.is_some());
+        let parameters = &driver_init.sig.inputs;
+        assert_eq!(
+            quote!(#parameters).to_string(),
+            "driver_object : * mut core :: ffi :: c_void , registry_path : * const core :: ffi :: c_void ,"
+        );
+        let driver_body = &driver_init.block;
+        let driver_body = quote!(#driver_body).to_string();
+        let providers = &find("init_providers").block;
+        let providers = quote!(#providers).to_string();
+        let cleanup = find("cleanup");
+        assert!(cleanup.sig.unsafety.is_some());
+        let cleanup = &cleanup.block;
+        let cleanup = quote!(#cleanup).to_string();
+        assert!(
+            providers.find("First :: init").unwrap() < providers.find("Second :: init").unwrap()
+        );
         assert!(
             cleanup.find("Second :: clean_up").unwrap()
                 < cleanup.find("First :: clean_up").unwrap()
         );
-        assert_eq!(init.contains("__wpp_ifr"), cfg!(feature = "ifr"));
+        assert_eq!(driver_body.contains("__wpp_ifr"), cfg!(feature = "ifr"));
         assert_eq!(cleanup.contains("__wpp_ifr"), cfg!(feature = "ifr"));
         if cfg!(feature = "ifr") {
             assert!(
-                init.find("__wpp_ifr :: init").unwrap() < init.find("First :: init").unwrap()
+                driver_body.find("__wpp_ifr :: init_driver").unwrap()
+                    < driver_body.find("init_providers").unwrap()
             );
             assert!(
                 cleanup.find("First :: clean_up").unwrap()
                     < cleanup.find("__wpp_ifr :: cleanup").unwrap()
             );
+        }
+        let app_init = functions.iter().find(|f| f.sig.ident == "init");
+        assert_eq!(app_init.is_some(), cfg!(feature = "user_mode"));
+        if let Some(app_init) = app_init {
+            assert!(app_init.sig.inputs.is_empty());
+            assert!(app_init.sig.unsafety.is_some());
+            let body = &app_init.block;
+            let body = quote!(#body).to_string();
+            assert_eq!(body.contains("__wpp_ifr"), cfg!(feature = "ifr"));
+            if cfg!(feature = "ifr") {
+                assert!(
+                    body.find("__wpp_ifr :: init").unwrap() < body.find("init_providers").unwrap()
+                );
+            }
         }
     }
 
@@ -917,13 +1025,90 @@ mod tests {
         })
         .unwrap();
         let file: syn::File = syn::parse2(output).unwrap();
-        let has_ifr_module = file.items.iter().any(|item| {
-            matches!(item, syn::Item::Mod(module) if module.ident == "__wpp_ifr")
-        });
+        let has_ifr_module = file
+            .items
+            .iter()
+            .any(|item| matches!(item, syn::Item::Mod(module) if module.ident == "__wpp_ifr"));
         assert_eq!(has_ifr_module, cfg!(feature = "ifr"));
+        assert!(
+            file.items
+                .iter()
+                .any(|item| { matches!(item, syn::Item::Mod(module) if module.ident == "App") })
+        );
         assert!(file.items.iter().any(|item| {
-            matches!(item, syn::Item::Mod(module) if module.ident == "App")
+            matches!(item, syn::Item::Mod(module) if module.ident == "wpp_tracing")
         }));
+        assert!(!file.items.iter().any(|item| {
+            matches!(item, syn::Item::Macro(item) if item.ident.as_ref().is_some_and(
+                |name| name == "wpp_init_tracing" || name == "wpp_cleanup"
+            ))
+        }));
+    }
+
+    #[test]
+    fn ifr_entry_points_share_raw_initialization() {
+        let parsed: ControlGuidsInput = syn::parse2(quote! {
+            App "34746ee9-2982-4967-aac1-fece7a3dfc3c" { GENERAL }
+        })
+        .unwrap();
+        let module: syn::ItemMod = syn::parse2(generate_ifr_module(&parsed.providers)).unwrap();
+        let functions: Vec<_> = module
+            .content
+            .unwrap()
+            .1
+            .into_iter()
+            .filter_map(|item| match item {
+                syn::Item::Fn(function) => Some(function),
+                _ => None,
+            })
+            .collect();
+        let driver_init = functions
+            .iter()
+            .find(|f| f.sig.ident == "init_driver")
+            .unwrap();
+        assert!(driver_init.sig.unsafety.is_some());
+        let parameters = &driver_init.sig.inputs;
+        assert_eq!(
+            quote!(#parameters).to_string(),
+            "driver_object : * mut core :: ffi :: c_void , registry_path : * const core :: ffi :: c_void ,"
+        );
+        let body = &driver_init.block;
+        let body = quote!(#body).to_string();
+        assert!(body.contains("init_raw (driver_object , registry_path)"));
+        assert!(!body.contains("compare_exchange"));
+        let app_init = functions.iter().find(|f| f.sig.ident == "init");
+        assert_eq!(app_init.is_some(), cfg!(feature = "user_mode"));
+        if let Some(app_init) = app_init {
+            assert!(app_init.sig.inputs.is_empty());
+            let body = &app_init.block;
+            let body = quote!(#body).to_string();
+            assert!(
+                body.contains("init_raw (core :: ptr :: null_mut () , core :: ptr :: null ())")
+            );
+        }
+        let raw_init = functions
+            .iter()
+            .find(|f| f.sig.ident == "init_raw")
+            .unwrap();
+        assert!(matches!(raw_init.vis, syn::Visibility::Inherited));
+        let body = &raw_init.block;
+        assert!(quote!(#body).to_string().contains("compare_exchange"));
+    }
+
+    #[test]
+    fn lifecycle_module_names_are_reserved() {
+        for name in ["wpp_tracing", "__wpp_ifr"] {
+            let name = Ident::new(name, proc_macro2::Span::call_site());
+            let error = generate(quote! {
+                #name "34746ee9-2982-4967-aac1-fece7a3dfc3c" { GENERAL }
+            })
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("reserved for WPP lifecycle support")
+            );
+        }
     }
 
     #[test]

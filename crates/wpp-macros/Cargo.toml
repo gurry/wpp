@@ -16,3 +16,5 @@ syn = { workspace = true, features = ["full"] }
 
 [features]
 ifr = []
+kernel_mode = []
+user_mode = []

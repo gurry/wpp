@@ -11,6 +11,6 @@ wpp-macros.workspace = true
 
 [features]
 default = ["user_mode"]
-kernel_mode = []
-user_mode = []
+kernel_mode = ["wpp-macros/kernel_mode"]
+user_mode = ["wpp-macros/user_mode"]
 ifr = ["wpp-macros/ifr"]

@@ -3,6 +3,12 @@
 
 //! Proc macros for WPP software tracing.
 
+#[cfg(all(feature = "kernel_mode", feature = "user_mode"))]
+compile_error!("wpp-macros: `kernel_mode` and `user_mode` are mutually exclusive");
+
+#[cfg(not(any(feature = "kernel_mode", feature = "user_mode")))]
+compile_error!("wpp-macros: enable exactly one of `kernel_mode` or `user_mode`");
+
 mod control_guids;
 mod field;
 mod trace_impl;
@@ -13,9 +19,12 @@ use proc_macro::TokenStream;
 ///
 /// Must be invoked at the crate root. Generates a provider module and a
 /// `trace!` macro for emitting ETW events with compile-time PDB annotations.
-/// Also generates `wpp_init_tracing!()` for applications,
-/// `wpp_init_tracing!(driver_object, registry_path)` for drivers, and
-/// `wpp_cleanup!()`. Initialization requires an unsafe block. All declared
+/// Also generates a `wpp_tracing` module with `init_driver` and `cleanup`
+/// functions, and a zero-argument `init` function in user mode. Driver
+/// initialization takes native `*mut core::ffi::c_void` driver-object and
+/// `*const core::ffi::c_void` registry-path descriptor pointers, which must
+/// remain valid for the documented initialization and cleanup lifetimes.
+/// Lifecycle operations require an unsafe block. All declared
 /// providers are initialized in declaration order and cleaned up in reverse
 /// order, with IFR initialized first and cleaned up last when enabled.
 ///
